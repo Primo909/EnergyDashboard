@@ -8,6 +8,8 @@ import pickle
 from sklearn import metrics
 import numpy as np
 from datetime import date
+from sklearn import linear_model
+from sklearn.ensemble import RandomForestRegressor
 
 featurelist_LR = ['Power_kW', 'solarRad_W/m2',
        'windGust_m/s', 'Holiday', 'Weekday', 'Hour', 'Month','Power -1']
@@ -25,16 +27,6 @@ aug_all = pd.read_csv('aug_all.csv')
 aug_all['time'] = pd.to_datetime(aug_all['time'], format="%Y-%m-%d %H:%M")
 aug_all = aug_all.set_index('time', drop=True)
 
-
-# reading and formatting test data 2019
-aug_2019 = pd.read_csv('project2_2019_aug.csv')
-aug_2019['time'] = pd.to_datetime(aug_2019['time'], format="%Y-%m-%d %H:%M")
-aug_2019 = aug_2019.set_index('time', drop=True)
-
-# reading and formatting test data 2019
-raw_2019 = pd.read_csv('project2_2019_raw.csv')
-raw_2019['time'] = pd.to_datetime(raw_2019['time'], format="%Y-%m-%d %H:%M")
-raw_2019 = raw_2019.set_index('time', drop=True)
 #=============================
 # define ML metrics
 def ml_metrics(pred, check):
@@ -60,10 +52,17 @@ def ml_metrics(pred, check):
     'cvRM',
     'NMBE']
     df=pd.DataFrame({'Metric': i,'Values': d})
-    print(df)
+    #print(df)
     return df
 
-
+#=============================
+# define split-features
+def split_features(featurelist,split=0.75):
+    df = aug_all.loc['2017':'2018']
+    t = df.index
+    Y = df['Power_kW'].values
+    X = df[featurelist].values
+    return X, Y, t
 #=============================
 # plot random forest prediction
 #=============================
@@ -130,7 +129,7 @@ def render_content(tab):
     if tab == 'tab-1':
         return html.Div([
             html.H3('Raw Power Data and Raw Meteorological Data'),
-            html.Label('Data availeable from 2017-01-01 to 2019-04-11'),
+            html.H6('Data availeable from 2017-01-01 to 2019-04-11'),
             #dcc.RadioItems(
             #    id='radio',
             #    options=[
@@ -178,9 +177,22 @@ def render_content(tab):
     elif tab=='train-model':
         return html.Div([
             html.H3('Choose Features for your Model'),
-            dcc.Checklist(aug_all.columns,['Power_kW','temp_C'],id='feature-checklist',inline=True,),
+            dcc.Checklist(aug_all.drop(columns=['Power_kW']).columns,['temp_C','windGust_m/s'],id='feature-checklist',inline=True,),
+            html.H3('Choose your Model (Explanation below)'),
+            dcc.RadioItems(
+                id='own-model-choose',
+                options=[
+                    {'label': 'Linear Regression', 'value': 'LR'},
+                    {'label': 'Random Forest', 'value': 'RF'},
+                ],
+                value='LR',inline=True
+            ),
+            html.H3('Train!'),
             html.Button('Train', id='submit-button'),
-            html.Div(id='button-output',children="g")
+            html.Div(id='train-own-table'),
+            html.Div([dcc.Graph(id='button-output')],style={'width': '60%', 'display': 'inline-block', 'padding': '10 10'}),
+            html.Div([dcc.Graph(id='train-own-scatter')],style={'width': '30%', 'display': 'inline-block', 'padding': '10 10'}),
+            html.P("The random forest regressor uses the following parameters : parameters = {'bootstrap': True, 'min_samples_leaf': 5, 'n_estimators': 10, 'min_samples_split': 5, 'max_features': 10, 'max_depth': 10, 'max_leaf_nodes': None}"),
             ])
             
 def choose_model(model):
@@ -190,7 +202,7 @@ def choose_model(model):
     elif model=='LR':
         filename='linear_regr.pkl'
         featurelist = ['Power_kW', 'solarRad_W/m2', 'windGust_m/s', 'Holiday', 'Weekday', 'Hour', 'Month','Power -1']
-    print(model)
+    #print(model)
     with open(filename,'rb') as file:
         model=pickle.load(file)
     
@@ -218,7 +230,9 @@ def update_graph(model):
             x=df_forecast.columns[0],
             y=df_forecast.columns[1:])
     fig.update_layout(
-            title={'text':'Comparison of Real Data and next-hour Prediction','x':0.5, 'xanchor':'center'})
+            title={'text':'Comparison of Real Data and next-hour Prediction','x':0.5, 'xanchor':'center'},
+            yaxis_title='Power consumption (kWh)',
+            xaxis_title='Date')
     return fig
 
 @app.callback(
@@ -247,6 +261,10 @@ def update_graph(featurelist,normalized,start,end):
     fig = px.line(dff,
             x=dff.index,
             y=featurelist)
+    fig.update_layout(
+            title={'text':'Exploratory Graphing of Different Features','x':0.5, 'xanchor':'center'},
+            yaxis_title='Features',
+            xaxis_title='Date')
     return fig
 
 @app.callback(
@@ -254,7 +272,7 @@ def update_graph(featurelist,normalized,start,end):
     [Input('model-choose','value')])
 def model_table(model):
     df_pred, df_metrics,dump = choose_model(model) 
-    print(df_metrics.T)
+    #print(df_metrics.T)
     return generate_table(df_metrics.T)
 def generate_table(dataframe, max_rows=10):
     return html.Table([
@@ -278,12 +296,59 @@ def show_featurelist(model):
 
 
 @app.callback(
-    Output('button-output', 'children'),
+    [Output('button-output', 'figure'),
+        Output('train-own-scatter','figure'),
+        Output('train-own-table','children')],
     [Input('submit-button', 'n_clicks')],
-    [State('feature-checklist', 'value')])
-def update_graph_cluster(button_clicks, featurelist):
+    [State('feature-checklist', 'value'),
+        State('own-model-choose', 'value')])
+def update_graph_cluster(button_clicks, featurelist, model):
+    X_train, Y_train, t_train = split_features(featurelist)
+    df_val = aug_all.copy().loc['2019']
+    X = df_val[featurelist].values
+    Y = df_val['Power_kW'].values
+    t = df_val.index
+    if model=='LR': 
+        regr = linear_model.LinearRegression()
+        regr.fit(X_train,Y_train)
+        pred = regr.predict(X)
+    elif model=='RF': 
+        parameters = {'bootstrap': True,
+                      'min_samples_leaf': 5,
+                      'n_estimators': 10, 
+                      'min_samples_split': 5,
+                      'max_features': 10,#'sqrt',
+                      'max_depth': 10,
+                      'max_leaf_nodes': None}
+        regr = RandomForestRegressor(**parameters)
+        regr.fit(X_train, Y_train)
+        pred = regr.predict(X)
+    print(t)
+    print(Y)
+    d={'time':t,'real-data':Y,'prediction':pred}
+    df_forecast = pd.DataFrame(data=d)
+    df_metrics = ml_metrics(pred,Y)
+
     out = "This model uses the features: "+', '.join(featurelist)
-    return out
+    fig = px.line(df_forecast,
+            x=df_forecast.columns[0],
+            y=df_forecast.columns[1:])
+    fig.update_layout(
+            title={'text':'Comparison of Real Data and next-hour Prediction','x':0.5, 'xanchor':'center'},
+            yaxis_title='Power consumption (kWh)',
+            xaxis_title='Date')
+
+    scatter = px.scatter(df_forecast,
+            x='real-data',
+            y='prediction')
+    scatter.update_layout(
+            title={'text':'Comparison in a Scatter Plot','x':0.5, 'xanchor':'center'},
+            yaxis_title='Real Data',
+            xaxis_title='Prediction')
+    return fig, scatter, generate_table(df_metrics.T)
+
+
+
 
 if __name__ == '__main__':
     #app.run_server(debug=True, port=8010)
