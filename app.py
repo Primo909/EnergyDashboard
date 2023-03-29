@@ -111,6 +111,8 @@ def ml_metrics(pred, check):
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
+server = app.server
+
 app.layout = html.Div([
     html.H2('IST Energy Yearly Consumption (kWh)'),
     dcc.Tabs(id='tabs', value='tab-1', children=[
@@ -253,4 +255,5 @@ def show_featurelist(model):
     return html.P(out)
 
 if __name__ == '__main__':
-    app.run_server(debug=True, port=8010)
+    #app.run_server(debug=True, port=8010)
+    app.run_server(debug=False)
