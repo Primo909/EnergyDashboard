@@ -1,6 +1,6 @@
 import dash
 from dash import html,Input,Output,dcc
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.express as px
@@ -114,10 +114,11 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 server = app.server
 
 app.layout = html.Div([
-    html.H2('IST Energy Yearly Consumption (kWh)'),
+    html.H2('Energy Consuption of North Tower at IST (kWh)'),
     dcc.Tabs(id='tabs', value='tab-1', children=[
         dcc.Tab(label='Exploring the Initial Data', value='tab-1'),
         dcc.Tab(label='Model Evaluation', value='tab-2'),
+        dcc.Tab(label='Train Your Model', value='train-model'),
     ]),
     html.Div(id='tabs-content'),
 
@@ -128,7 +129,7 @@ app.layout = html.Div([
 def render_content(tab):
     if tab == 'tab-1':
         return html.Div([
-            html.H3('IST Energy yearly Consumption (kWh)'),
+            html.H3('Raw Power Data and Raw Meteorological Data'),
             html.Label('Data availeable from 2017-01-01 to 2019-04-11'),
             #dcc.RadioItems(
             #    id='radio',
@@ -169,9 +170,17 @@ def render_content(tab):
                 value='RF',inline=True
             ),
             html.P(id='feature-list'),
-            html.Div([dcc.Graph(id='random-forest')], style={'width': '70%', 'display': 'inline-block', 'padding': '0 20'}),
+            html.Div(id='model-table', style={'width': '90%', 'display': 'inline-block', 'padding': '10 10'}),
+            html.Div([dcc.Graph(id='random-forest')], style={'width': '60%', 'display': 'inline-block', 'padding': '10 10'}),
+            html.Div([dcc.Graph(id='scatter-ml')], style={'width': '30%', 'display': 'inline-block', 'padding': '10 10'}),
             #html.Div([generate_table(df_metrics)], style={'width': '30%', 'display': 'inline-block', 'padding': '0 20'}),
-            html.Div(id='model-table', style={'width': '30%', 'display': 'inline-block', 'padding': '0 20'}),
+            ])
+    elif tab=='train-model':
+        return html.Div([
+            html.H3('Choose Features for your Model'),
+            dcc.Checklist(aug_all.columns,['Power_kW','temp_C'],id='feature-checklist',inline=True,),
+            html.Button('Train', id='submit-button'),
+            html.Div(id='button-output',children="g")
             ])
             
 def choose_model(model):
@@ -207,10 +216,22 @@ def update_graph(model):
     df_forecast, dump,dump2 = choose_model(model)
     fig = px.line(df_forecast,
             x=df_forecast.columns[0],
-            y=df_forecast.columns[1:]
-            )
+            y=df_forecast.columns[1:])
+    fig.update_layout(
+            title={'text':'Comparison of Real Data and next-hour Prediction','x':0.5, 'xanchor':'center'})
     return fig
 
+@app.callback(
+        Output('scatter-ml','figure'),
+        [Input('model-choose','value')])
+def update_graph(model):
+    df_forecast, dump, dump2 = choose_model(model)
+    fig = px.scatter(df_forecast,
+            x='real-data',
+            y='prediction')
+    fig.update_layout(
+            title={'text':'Comparison in a Scatter Plot','x':0.5, 'xanchor':'center'})
+    return fig
 @app.callback(
     Output('yearly-data', 'figure'),
     [#Input('radio', 'value'),
@@ -233,12 +254,13 @@ def update_graph(featurelist,normalized,start,end):
     [Input('model-choose','value')])
 def model_table(model):
     df_pred, df_metrics,dump = choose_model(model) 
-    return generate_table(df_metrics)
+    print(df_metrics.T)
+    return generate_table(df_metrics.T)
 def generate_table(dataframe, max_rows=10):
     return html.Table([
-        html.Thead(
-            html.Tr([html.Th(col) for col in dataframe.columns])
-        ),
+        #html.Thead(
+        #    html.Tr([html.Th(col) for col in dataframe.columns])
+        #),
         html.Tbody([
             html.Tr([
                 html.Td(dataframe.iloc[i][col]) for col in dataframe.columns
@@ -253,6 +275,15 @@ def show_featurelist(model):
     dump1,dump2,featurelist = choose_model(model)
     out = "This model uses the features: "+', '.join(featurelist)
     return html.P(out)
+
+
+@app.callback(
+    Output('button-output', 'children'),
+    [Input('submit-button', 'n_clicks')],
+    [State('feature-checklist', 'value')])
+def update_graph_cluster(button_clicks, featurelist):
+    out = "This model uses the features: "+', '.join(featurelist)
+    return out
 
 if __name__ == '__main__':
     #app.run_server(debug=True, port=8010)
