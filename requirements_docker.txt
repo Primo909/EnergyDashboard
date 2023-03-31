@@ -1,7 +1,0 @@
-dash
-matplotlib
-pandas
-plotly
-scikit-learn
-datetime
-gunicorn
