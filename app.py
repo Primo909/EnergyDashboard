@@ -16,10 +16,6 @@ featurelist_LR = ['Power_kW', 'solarRad_W/m2',
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
-# reading and formatting training data
-north_data = pd.read_csv('IST_Kevin_Steiner_all_data.csv')
-north_data['time'] = pd.to_datetime(north_data['time'], format="%Y-%m-%d %H:%M")
-north_data = north_data.set_index('time', drop=True)
 
 
 # reading and formatting test data 2019
@@ -352,4 +348,4 @@ def update_graph_cluster(button_clicks, featurelist, model):
 
 if __name__ == '__main__':
     #app.run_server(debug=True, port=8010)
-    app.run_server(debug=True)
+    app.run_server(debug=False)
